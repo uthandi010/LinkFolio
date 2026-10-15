@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
-from jose import JWTError, jwt
+import jwt
 
 from .config import get_settings
 
@@ -38,7 +38,7 @@ def create_access_token(user_id: int) -> str:
 def decode_access_token(token: str) -> int | None:
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-    except JWTError:
+    except jwt.PyJWTError:
         return None
 
     subject = payload.get("sub")

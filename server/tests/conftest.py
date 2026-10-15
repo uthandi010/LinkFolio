@@ -7,6 +7,16 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base
 from app.deps import get_db
 from app.main import app
+from app.ratelimit import limiter
+
+
+@pytest.fixture(autouse=True)
+def _no_rate_limit():
+    # Individual tests flip limiter.enabled back on to exercise limiting.
+    limiter.reset()
+    limiter.enabled = False
+    yield
+    limiter.reset()
 
 
 @pytest.fixture()

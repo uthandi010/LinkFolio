@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import datetime, timezone
 
 
 def test_summary_with_no_links_is_all_zero(client, register_user, auth_header):
@@ -46,7 +46,7 @@ def test_summary_clicks_by_day_includes_todays_clicks(client, register_user, aut
 
     summary = client.get("/api/analytics/summary", headers=headers).json()
 
-    today_key = date.today().isoformat()
+    today_key = datetime.now(timezone.utc).date().isoformat()
     today_row = next(row for row in summary["clicks_by_day"] if row["date"] == today_key)
     assert today_row["clicks"] == 1
 

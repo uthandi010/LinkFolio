@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..deps import get_db
+from ..ratelimit import rate_limit
 from ..security import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -20,7 +21,12 @@ def _auth_response(user: models.User) -> schemas.AuthResponse:
     )
 
 
-@router.post("/register", response_model=schemas.AuthResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    response_model=schemas.AuthResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit("register", limit=5, window_seconds=60))],
+)
 def register(payload: schemas.RegisterRequest, db: Session = Depends(get_db)) -> schemas.AuthResponse:
     email = payload.email.lower()
 
@@ -50,7 +56,11 @@ def register(payload: schemas.RegisterRequest, db: Session = Depends(get_db)) ->
     return _auth_response(user)
 
 
-@router.post("/login", response_model=schemas.AuthResponse)
+@router.post(
+    "/login",
+    response_model=schemas.AuthResponse,
+    dependencies=[Depends(rate_limit("login", limit=10, window_seconds=60))],
+)
 def login(payload: schemas.LoginRequest, db: Session = Depends(get_db)) -> schemas.AuthResponse:
     user = db.scalar(select(models.User).where(models.User.email == payload.email.lower()))
 

@@ -104,3 +104,53 @@ def test_delete_link_removes_it(client, register_user, auth_header):
 
     assert delete_response.status_code == 204
     assert list_response.json() == []
+
+
+import pytest
+
+
+@pytest.mark.parametrize(
+    "bad_url",
+    [
+        "javascript:alert(1)",
+        "data:text/html;base64,PHNjcmlwdD4=",
+        "ftp://example.com/file",
+        "//example.com",
+        "https://",
+        "example.com",
+        "https://exa mple.com",
+        "https://example.com/" + "a" * 2100,
+    ],
+)
+def test_create_link_rejects_non_http_urls(client, register_user, auth_header, bad_url):
+    headers = auth_header(register_user()["token"])
+
+    response = client.post("/api/links", json={"title": "Bad", "url": bad_url}, headers=headers)
+
+    assert response.status_code == 422
+
+
+def test_update_link_rejects_javascript_url(client, register_user, auth_header):
+    headers = auth_header(register_user()["token"])
+    created = client.post("/api/links", json={"title": "Ok", "url": "https://example.com"}, headers=headers).json()
+
+    response = client.patch(f"/api/links/{created['id']}", json={"url": "javascript:alert(1)"}, headers=headers)
+
+    assert response.status_code == 422
+
+
+def test_create_link_rejects_overlong_title(client, register_user, auth_header):
+    headers = auth_header(register_user()["token"])
+
+    response = client.post("/api/links", json={"title": "t" * 121, "url": "https://example.com"}, headers=headers)
+
+    assert response.status_code == 422
+
+
+def test_create_link_strips_whitespace_around_url(client, register_user, auth_header):
+    headers = auth_header(register_user()["token"])
+
+    response = client.post("/api/links", json={"title": "Ok", "url": "  https://example.com  "}, headers=headers)
+
+    assert response.status_code == 201
+    assert response.json()["url"] == "https://example.com"

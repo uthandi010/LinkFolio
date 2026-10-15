@@ -20,7 +20,7 @@ when.
 | Layer | Tech |
 | --- | --- |
 | API | FastAPI, SQLAlchemy 2.0, SQLite |
-| Auth | JWT (`python-jose`), `bcrypt` for password hashing |
+| Auth | JWT (`PyJWT`), `bcrypt` for password hashing |
 | Client | React 19 (JS), React Router, Recharts |
 | Tests | pytest + FastAPI's `TestClient` (28 examples), Vitest + React Testing Library (14 examples) |
 
@@ -95,8 +95,10 @@ continuous 30-day axis even for a brand-new account).
   exists.
 - Passwords are hashed with `bcrypt` directly (not `passlib`) — `passlib`'s bcrypt wrapper is
   effectively unmaintained and breaks on bcrypt >= 4.1's package layout.
-- The JWT secret key has a dev-only default in `app/config.py`; set `LINKFOLIO_SECRET_KEY` before
-  deploying anywhere real.
+- The JWT secret key has a dev-only default in `app/config.py`. With `LINKFOLIO_ENV` set to anything
+  other than `dev`/`test`, the server refuses to start unless `LINKFOLIO_SECRET_KEY` is set.
+- Login, register and the click redirect are rate limited per IP with a small in-memory limiter
+  (single process only).
 
 ## What's intentionally left out
 

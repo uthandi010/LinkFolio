@@ -60,3 +60,66 @@ def test_clicking_an_unknown_link_404s(client):
     response = client.get("/api/public/links/999999/go", follow_redirects=False)
 
     assert response.status_code == 404
+
+
+def test_go_refuses_to_redirect_to_a_non_http_url(client, register_user, auth_header, db_session):
+    from app import models
+
+    user = register_user()
+    link = client.post(
+        "/api/links", json={"title": "Ok", "url": "https://example.com"}, headers=auth_header(user["token"])
+    ).json()
+    # Simulate legacy data that predates URL validation.
+    db_session.get(models.Link, link["id"]).url = "javascript:alert(1)"
+    db_session.commit()
+
+    response = client.get(f"/api/public/links/{link['id']}/go", follow_redirects=False)
+    profile = client.get(f"/api/public/profiles/{user['username']}").json()
+
+    assert response.status_code == 404
+    assert profile["links"] == []
+
+
+def test_repeat_clicks_in_short_window_are_counted_once(client, register_user, auth_header):
+    from app.ratelimit import limiter
+
+    user = register_user()
+    headers = auth_header(user["token"])
+    link = client.post("/api/links", json={"title": "Ok", "url": "https://example.com"}, headers=headers).json()
+    limiter.enabled = True
+
+    for _ in range(3):
+        assert client.get(f"/api/public/links/{link['id']}/go", follow_redirects=False).status_code == 302
+
+    assert client.get("/api/analytics/summary", headers=headers).json()["total_clicks"] == 1
+
+
+def test_go_is_rate_limited(client, register_user, auth_header):
+    from app.ratelimit import limiter
+
+    user = register_user()
+    link = client.post(
+        "/api/links", json={"title": "Ok", "url": "https://example.com"}, headers=auth_header(user["token"])
+    ).json()
+    limiter.enabled = True
+
+    statuses = [
+        client.get(f"/api/public/links/{link['id']}/go", follow_redirects=False).status_code for _ in range(61)
+    ]
+
+    assert statuses[-1] == 429
+
+
+def test_referrer_is_capped_and_broken_down_per_link(client, register_user, auth_header):
+    user = register_user()
+    headers = auth_header(user["token"])
+    link = client.post("/api/links", json={"title": "Ok", "url": "https://example.com"}, headers=headers).json()
+
+    client.get(f"/api/public/links/{link['id']}/go", headers={"referer": "https://x.example/" + "a" * 2000}, follow_redirects=False)
+    client.get(f"/api/public/links/{link['id']}/go", follow_redirects=False)
+
+    row = client.get("/api/analytics/summary", headers=headers).json()["clicks_by_link"][0]
+    referrers = {r["referrer"]: r["clicks"] for r in row["referrers"]}
+    assert "(direct)" in referrers
+    assert all(len(name) <= 512 for name in referrers)
+    assert sum(referrers.values()) == 2
