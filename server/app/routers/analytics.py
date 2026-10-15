@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
@@ -15,7 +15,7 @@ DAYS_OF_HISTORY = 30
 def _zero_filled_days(counts_by_date: dict[str, int]) -> list[schemas.ClicksByDay]:
     """Always returns exactly DAYS_OF_HISTORY entries, oldest first, so the
     dashboard chart has a continuous x-axis even for a brand-new account."""
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     return [
         schemas.ClicksByDay(date=day_key, clicks=counts_by_date.get(day_key, 0))
         for day_key in (
@@ -47,11 +47,29 @@ def get_analytics_summary(
         .group_by(models.Link.id)
         .order_by(func.count(models.Click.id).desc())
     ).all()
+
+    referrer_rows = db.execute(
+        select(models.Click.link_id, models.Click.referrer, func.count(models.Click.id))
+        .where(models.Click.link_id.in_(link_ids))
+        .group_by(models.Click.link_id, models.Click.referrer)
+        .order_by(func.count(models.Click.id).desc())
+    ).all()
+    referrers_by_link: dict[int, list[schemas.ReferrerCount]] = {}
+    for link_id, referrer, count in referrer_rows:
+        referrers_by_link.setdefault(link_id, []).append(
+            schemas.ReferrerCount(referrer=referrer or "(direct)", clicks=count)
+        )
+
     clicks_by_link = [
-        schemas.LinkClickCount(link_id=row[0], title=row[1], clicks=row[2]) for row in clicks_by_link_rows
+        schemas.LinkClickCount(
+            link_id=row[0], title=row[1], clicks=row[2], referrers=referrers_by_link.get(row[0], [])
+        )
+        for row in clicks_by_link_rows
     ]
 
-    since = datetime.now(timezone.utc) - timedelta(days=DAYS_OF_HISTORY)
+    # Start of the oldest UTC day in the window, matching _zero_filled_days.
+    window_start = datetime.now(timezone.utc).date() - timedelta(days=DAYS_OF_HISTORY - 1)
+    since = datetime(window_start.year, window_start.month, window_start.day, tzinfo=timezone.utc)
     daily_rows = db.execute(
         select(func.date(models.Click.clicked_at), func.count(models.Click.id))
         .where(models.Click.link_id.in_(link_ids), models.Click.clicked_at >= since)
