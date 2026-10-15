@@ -5,6 +5,7 @@ import { useAuth } from "../auth/AuthContext";
 import * as linksApi from "../api/links";
 import * as authApi from "../api/auth";
 import { ApiError } from "../api/client";
+import { safeHttpUrl } from "../utils/safeHttpUrl";
 
 export function DashboardPage() {
   const { user, updateProfile } = useAuth();
@@ -180,9 +181,13 @@ export function DashboardPage() {
 
                 <div className="link-info">
                   <strong>{link.title}</strong>
-                  <a href={link.url} target="_blank" rel="noopener noreferrer">
-                    {link.url} <ExternalLink size={12} />
-                  </a>
+                  {safeHttpUrl(link.url) ? (
+                    <a href={safeHttpUrl(link.url)} target="_blank" rel="noopener noreferrer">
+                      {link.url} <ExternalLink size={12} />
+                    </a>
+                  ) : (
+                    <span className="muted">{link.url} (blocked: not an http(s) link)</span>
+                  )}
                 </div>
 
                 <div className="link-actions">

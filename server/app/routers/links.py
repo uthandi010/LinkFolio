@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, insert, select
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
@@ -31,22 +31,27 @@ def create_link(
 ) -> models.Link:
     if not payload.title.strip():
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Title is required.")
-    if not payload.url.strip():
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "URL is required.")
 
-    max_position = db.scalar(
-        select(func.max(models.Link.position)).where(models.Link.user_id == current_user.id)
+    # The next position is computed inside the INSERT itself, so the
+    # read-max-then-write race between concurrent requests can't hand two
+    # links the same position.
+    next_position = (
+        select(func.coalesce(func.max(models.Link.position) + 1, 0))
+        .where(models.Link.user_id == current_user.id)
+        .scalar_subquery()
     )
-    link = models.Link(
-        user_id=current_user.id,
-        title=payload.title.strip(),
-        url=payload.url.strip(),
-        position=(max_position + 1) if max_position is not None else 0,
-    )
-    db.add(link)
+    link_id = db.execute(
+        insert(models.Link)
+        .values(
+            user_id=current_user.id,
+            title=payload.title.strip(),
+            url=payload.url,
+            position=next_position,
+        )
+        .returning(models.Link.id)
+    ).scalar_one()
     db.commit()
-    db.refresh(link)
-    return link
+    return db.get(models.Link, link_id)
 
 
 @router.patch("/{link_id}", response_model=schemas.LinkResponse)
@@ -63,9 +68,7 @@ def update_link(
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Title cannot be blank.")
         link.title = payload.title.strip()
     if payload.url is not None:
-        if not payload.url.strip():
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "URL cannot be blank.")
-        link.url = payload.url.strip()
+        link.url = payload.url
     if payload.active is not None:
         link.active = payload.active
 
